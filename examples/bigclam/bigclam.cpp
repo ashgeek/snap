@@ -22,6 +22,10 @@ int main(int argc, char* argv[]) {
   const int NumThreads = Env.GetIfArgPrefixInt("-nt:", 4, "Number of threads for parallelization");
   const double StepAlpha = Env.GetIfArgPrefixFlt("-sa:", 0.05, "Alpha for backtracking line search");
   const double StepBeta = Env.GetIfArgPrefixFlt("-sb:", 0.3, "Beta for backtracking line search");
+  const int DP = Env.GetIfArgPrefixFlt("-dp:", 0, "Enable DP 1, else 0");
+  const int seed = Env.GetIfArgPrefixFlt("-seed:", 1234, "Provide seed");
+  const double eps = Env.GetIfArgPrefixFlt("-eps:", 1.0, "Epsilon");
+  TStr OutFile = Env.GetIfArgPrefixStr("-of:", "cmtyvv.txt", "File to output communities");
 
 #ifdef USE_OPENMP
   omp_set_num_threads(NumThreads);
@@ -41,24 +45,24 @@ int main(int argc, char* argv[]) {
     G = TAGMUtil::LoadEdgeListStr<PUNGraph>(InFNm, NIDNameH);
   }
   printf("Graph: %d Nodes %d Edges\n", G->GetNodes(), G->GetEdges());
-  
+
   TVec<TIntV> EstCmtyVV;
   TExeTm RunTm;
   TAGMFast RAGM(G, 10, 10);
-  
+
   if (OptComs == -1) {
     printf("finding number of communities\n");
     OptComs = RAGM.FindComsByCV(NumThreads, MaxComs, MinComs, DivComs, OutFPrx, StepAlpha, StepBeta);
   }
 
-  RAGM.NeighborComInit(OptComs);
+  RAGM.AllInit(OptComs);
   if (NumThreads == 1 || G->GetEdges() < 1000) {
-    RAGM.MLEGradAscent(0.0001, 1000 * G->GetNodes(), "", StepAlpha, StepBeta);
+    RAGM.MLEGradAscent(0.0001, 1000 * G->GetNodes(), "", StepAlpha, StepBeta, DP, eps, G->GetNodes(), G->GetEdges(), OptComs, seed);
   } else {
     RAGM.MLEGradAscentParallel(0.0001, 1000, NumThreads, "", StepAlpha, StepBeta);
   }
   RAGM.GetCmtyVV(EstCmtyVV);
-  TAGMUtil::DumpCmtyVV(OutFPrx + "cmtyvv.txt", EstCmtyVV, NIDNameH);
+  TAGMUtil::DumpCmtyVV(OutFPrx + OutFile, EstCmtyVV, NIDNameH);
   TAGMUtil::SaveGephi(OutFPrx + "graph.gexf", G, EstCmtyVV, 1.5, 1.5, NIDNameH);
 
   Catch

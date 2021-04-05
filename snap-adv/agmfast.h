@@ -28,6 +28,7 @@ public:
   void SetRegCoef(const double _RegCoef) { RegCoef = _RegCoef; }
   double GetRegCoef() { return RegCoef; }
   void RandomInit(const int InitComs);
+  void AllInit(const int InitComs);
   void NeighborComInit(const int InitComs);
   void SetCmtyVV(const TVec<TIntV>& CmtyVV);
   double Likelihood(const bool DoParallel = false);
@@ -44,7 +45,7 @@ public:
   int FindComsByCV(const int NumThreads, const int MaxComs, const int MinComs, const int DivComs, const TStr& OutFNm, const double StepAlpha = 0.3, const double StepBeta = 0.3);
   double LikelihoodHoldOut(const bool DoParallel = false);
   double GetStepSizeByLineSearch(const int UID, const TIntFltH& DeltaV, const TIntFltH& GradV, const double& Alpha, const double& Beta, const int MaxIter = 10);
-  int MLEGradAscent(const double& Thres, const int& MaxIter, const TStr& PlotNm, const double StepAlpha = 0.3, const double StepBeta = 0.1);
+  int MLEGradAscent(const double& Thres, const int& MaxIter, const TStr& PlotNm, const double StepAlpha = 0.3, const double StepBeta = 0.1, const int DP = 0, const double eps=1.0, const int V=1000, const int E=1000, const int C=10, const int seed=1234);
   int MLEGradAscentParallel(const double& Thres, const int& MaxIter, const int ChunkNum, const int ChunkSize, const TStr& PlotNm, const double StepAlpha = 0.3, const double StepBeta = 0.1);
   int MLEGradAscentParallel(const double& Thres, const int& MaxIter, const int ChunkNum, const TStr& PlotNm = TStr(), const double StepAlpha = 0.3, const double StepBeta = 0.1) {
     int ChunkSize = G->GetNodes() / 10 / ChunkNum;

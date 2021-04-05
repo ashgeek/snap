@@ -3,6 +3,9 @@
 #include "agmfast.h"
 #include "Snap.h"
 #include "agm.h"
+#include <math.h>
+#include <stdio.h>
+#include <random>
 
 void TAGMFast::Save(TSOut& SOut) {
   G->Save(SOut);
@@ -46,6 +49,24 @@ void TAGMFast::RandomInit(const int InitComs) {
     for (int c = 0; c < Mem; c++) {
       int CID = Rnd.GetUniDevInt(InitComs);
       AddCom(u, CID, Rnd.GetUniDev());
+    }
+  }
+  //assign a member to zero-member community (if any)
+  for (int c = 0; c < SumFV.Len(); c++) {
+    if (SumFV[c] == 0.0) {
+      int UID = Rnd.GetUniDevInt(G->GetNodes());
+      AddCom(UID, c, Rnd.GetUniDev());
+    }
+  }
+}
+
+void TAGMFast::AllInit(const int InitComs) {
+  F.Gen(G->GetNodes());
+  SumFV.Gen(InitComs);
+  NumComs = InitComs;
+  for (int u = 0; u < F.Len(); u++) {
+    for (int c = 0; c < NumComs; c++) {
+      AddCom(u, c, Rnd.GetUniDev());
     }
   }
   //assign a member to zero-member community (if any)
@@ -253,14 +274,14 @@ void TAGMFast::GradientForRow(const int UID, TIntFltH& GradU, const TIntSet& CID
   TFltV HOSumFV; //adjust for Fv of v hold out
   if (HOVIDSV[UID].Len() > 0) {
     HOSumFV.Gen(SumFV.Len());
-    
+
     for (int e = 0; e < HOVIDSV[UID].Len(); e++) {
       for (int c = 0; c < SumFV.Len(); c++) {
         HOSumFV[c] += GetCom(HOVIDSV[UID][e], c);
       }
     }
   }
-    
+
   TUNGraph::TNodeI NI = G->GetNI(UID);
   int Deg = NI.GetDeg();
   TFltV PredV(Deg), GradV(CIDSet.Len());
@@ -272,7 +293,7 @@ void TAGMFast::GradientForRow(const int UID, TIntFltH& GradU, const TIntSet& CID
       if (HOVIDSV[UID].IsKey(NI.GetNbrNId(e))) { continue; }
       PredV[e] = Prediction(UID, NI.GetNbrNId(e));
     }
-  
+
 #pragma omp parallel for schedule(static, 1)
     for (int c = 0; c < CIDSet.Len(); c++) {
       int CID = CIDSet.GetKey(c);
@@ -288,14 +309,14 @@ void TAGMFast::GradientForRow(const int UID, TIntFltH& GradU, const TIntSet& CID
       CIDV[c] = CID;
       GradV[c] = Val;
     }
-  } 
+  }
   else {
     for (int e = 0; e < Deg; e++) {
       if (NI.GetNbrNId(e) == UID) { continue; }
       if (HOVIDSV[UID].IsKey(NI.GetNbrNId(e))) { continue; }
       PredV[e] = Prediction(UID, NI.GetNbrNId(e));
     }
-  
+
     for (int c = 0; c < CIDSet.Len(); c++) {
       int CID = CIDSet.GetKey(c);
       double Val = 0.0;
@@ -314,12 +335,12 @@ void TAGMFast::GradientForRow(const int UID, TIntFltH& GradU, const TIntSet& CID
   //add regularization
   if (RegCoef > 0.0) { //L1
     for (int c = 0; c < GradV.Len(); c++) {
-      GradV[c] -= RegCoef; 
+      GradV[c] -= RegCoef;
     }
   }
   if (RegCoef < 0.0) { //L2
     for (int c = 0; c < GradV.Len(); c++) {
-      GradV[c] += 2 * RegCoef * GetCom(UID, CIDV[c]); 
+      GradV[c] += 2 * RegCoef * GetCom(UID, CIDV[c]);
     }
   }
 
@@ -687,7 +708,8 @@ double TAGMFast::GetStepSizeByLineSearch(const int UID, const TIntFltH& DeltaV, 
   return StepSize;
 }
 
-int TAGMFast::MLEGradAscent(const double& Thres, const int& MaxIter, const TStr& PlotNm, const double StepAlpha, const double StepBeta) {
+int TAGMFast::MLEGradAscent(const double& Thres, const int& MaxIter, const TStr& PlotNm, const double StepAlpha,\
+                            const double StepBeta, const int DP, const double eps, const int V, const int E, const int C, const int seed) {
   time_t InitTime = time(NULL);
   TExeTm ExeTm, CheckTm;
   int iter = 0, PrevIter = 0;
@@ -698,6 +720,16 @@ int TAGMFast::MLEGradAscent(const double& Thres, const int& MaxIter, const TStr&
   for (int i = 0; i < F.Len(); i++) { NIdxV.Add(i); }
   IAssert(NIdxV.Len() == F.Len());
   TIntFltH GradV;
+  std::default_random_engine generator;
+  generator.seed(seed);
+  double scale = 0.0;
+  if (DP==1){
+    double rho = (((double)E*1.0)/(V-1))/(V+1);
+    scale = (2.0*sqrt(C))/(eps*rho);
+    printf("Density: %lf, scale: %lf\n", rho, scale);
+  }
+  std::exponential_distribution<double> distribution(1.0/scale);
+
   while(iter < MaxIter) {
     NIdxV.Shuffle(Rnd);
     for (int ui = 0; ui < F.Len(); ui++, iter++) {
@@ -719,6 +751,13 @@ int TAGMFast::MLEGradAscent(const double& Thres, const int& MaxIter, const TStr&
       }
       if (CIDSet.Empty()) { continue; }
       GradientForRow(u, GradV, CIDSet);
+      if (DP==1){     // If DP then add noise
+        for(int i=0;i<GradV.Len();i++){
+          double number1 = distribution(generator);
+          double number2 = distribution(generator);
+          GradV[i]+=number1 - number2;
+        }
+      }
       if (Norm2(GradV) < 1e-4) { continue; }
       double LearnRate = GetStepSizeByLineSearch(u, GradV, GradV, StepAlpha, StepBeta);
       if (LearnRate == 0.0) { continue; }
@@ -799,7 +838,7 @@ int TAGMFast::MLEGradAscentParallel(const double& Thres, const int& MaxIter, con
             CIDSet.AddKey(CI.GetKey());
           }
         }
-        if (CIDSet.Empty()) { 
+        if (CIDSet.Empty()) {
           CurFU.Clr();
         }
         else {

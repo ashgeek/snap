@@ -5,5 +5,5 @@
 MAIN = bigclam
 DEPH = $(EXSNAPADV)/agm.h $(EXSNAPADV)/agmfit.h $(EXSNAPADV)/agmfast.h
 DEPCPP = $(EXSNAPADV)/agm.cpp $(EXSNAPADV)/agmfit.cpp $(EXSNAPADV)/agmfast.cpp
-CXXFLAGS += $(CXXOPENMP)
+CXXFLAGS += -std=c++11 $(CXXOPENMP) -static
 
