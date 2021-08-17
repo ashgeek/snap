@@ -55,13 +55,13 @@ int main(int argc, char* argv[]) {
     OptComs = RAGM.FindComsByCV(NumThreads, MaxComs, MinComs, DivComs, OutFPrx, StepAlpha, StepBeta);
   }
 
-  RAGM.AllInit(OptComs);
+  RAGM.AllInit95Quantile(OptComs);
   if (NumThreads == 1 || G->GetEdges() < 1000) {
-    RAGM.MLEGradAscent(0.0001, 1000 * G->GetNodes(), "", StepAlpha, StepBeta, DP, eps, G->GetNodes(), G->GetEdges(), OptComs, seed);
+    RAGM.MLEGradAscent(0.0001, 10000 * G->GetNodes(), "", StepAlpha, StepBeta, DP, eps, G->GetNodes(), G->GetEdges(), OptComs, seed);
   } else {
     RAGM.MLEGradAscentParallel(0.0001, 1000, NumThreads, "", StepAlpha, StepBeta);
   }
-  RAGM.GetCmtyVV(EstCmtyVV);
+  RAGM.GetCmtyVV(EstCmtyVV, DP);
   TAGMUtil::DumpCmtyVV(OutFPrx + OutFile, EstCmtyVV, NIDNameH);
   TAGMUtil::SaveGephi(OutFPrx + "graph.gexf", G, EstCmtyVV, 1.5, 1.5, NIDNameH);
 
