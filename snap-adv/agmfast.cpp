@@ -3,9 +3,11 @@
 #include "agmfast.h"
 #include "Snap.h"
 #include "agm.h"
+#include <algorithm>
 #include <math.h>
 #include <stdio.h>
 #include <random>
+#include <iostream>
 
 void TAGMFast::Save(TSOut& SOut) {
   G->Save(SOut);
@@ -67,6 +69,38 @@ void TAGMFast::AllInit(const int InitComs) {
   for (int u = 0; u < F.Len(); u++) {
     for (int c = 0; c < NumComs; c++) {
       AddCom(u, c, Rnd.GetUniDev());
+    }
+  }
+  //assign a member to zero-member community (if any)
+  for (int c = 0; c < SumFV.Len(); c++) {
+    if (SumFV[c] == 0.0) {
+      int UID = Rnd.GetUniDevInt(G->GetNodes());
+      AddCom(UID, c, Rnd.GetUniDev());
+    }
+  }
+}
+
+void TAGMFast::AllInit95Quantile(const int InitComs) {
+  F.Gen(G->GetNodes());
+  SumFV.Gen(InitComs);
+  NumComs = InitComs;
+  std::vector<double> vec;
+  for (int u = 0; u < F.Len(); u++) {
+    for (int c = 0; c < NumComs; c++) {
+      double a = Rnd.GetUniDev();
+      vec.push_back(a);
+      AddCom(u, c, a);
+    }
+  }
+  std::sort(vec.begin(), vec.end());
+  int ind = int(vec.size()*0.95)-1;
+  double val_95 = vec[ind];
+  for (int u = 0; u < F.Len(); u++) {
+    for (int c = 0; c < NumComs; c++) {
+      if (F[u].GetDat(c) >= val_95){
+        AddCom(u, c, 1.0);
+      }
+      else { AddCom(u, c, 0.0); }
     }
   }
   //assign a member to zero-member community (if any)
@@ -350,11 +384,13 @@ void TAGMFast::GradientForRow(const int UID, TIntFltH& GradU, const TIntSet& CID
     if (fabs(GradV[c]) < 0.0001) { continue; }
     GradU.AddDat(CIDV[c], GradV[c]);
   }
-  for (int c = 0; c < GradU.Len(); c++) {
-    if (GradU[c] >= 10) { GradU[c] = 10; }
-    if (GradU[c] <= -10) { GradU[c] = -10; }
-    IAssert(GradU[c] >= -10);
-  }
+
+  // Moved this part of the code to after adding noise
+  // for (int c = 0; c < GradU.Len(); c++) {
+  //   if (GradU[c] >= 10) { GradU[c] = 10; }
+  //   if (GradU[c] <= -10) { GradU[c] = -10; }
+  //   IAssert(GradU[c] >= -10);
+  // }
 }
 
 double TAGMFast::GradientForOneVar(const TFltV& AlphaKV, const int UID, const int CID, const double& Val) {
@@ -526,8 +562,11 @@ int TAGMFast::MLENewton(const double& Thres, const int& MaxIter, const TStr& Plo
   return iter;
 }
 
-void TAGMFast::GetCmtyVV(TVec<TIntV>& CmtyVV) {
-  GetCmtyVV(CmtyVV, sqrt(2.0 * (double) G->GetEdges() / G->GetNodes() / G->GetNodes()), 3);
+void TAGMFast::GetCmtyVV(TVec<TIntV>& CmtyVV, const int DP) {
+  double threshold = 0.01;
+  double thres1 = sqrt(-log(1-2.0 * (double) G->GetEdges() / G->GetNodes() / G->GetNodes()));
+  // if (DP==1) {threshold = 0.5; }
+  GetCmtyVV(CmtyVV, threshold, 3);
 }
 
 /// extract community affiliation from F_uc
@@ -722,13 +761,31 @@ int TAGMFast::MLEGradAscent(const double& Thres, const int& MaxIter, const TStr&
   TIntFltH GradV;
   std::default_random_engine generator;
   generator.seed(seed);
-  double scale = 0.0;
-  if (DP==1){
-    double rho = (((double)E*1.0)/(V-1))/(V+1);
-    scale = (2.0*sqrt(C))/(eps*rho);
-    printf("Density: %lf, scale: %lf\n", rho, scale);
-  }
+  double rho = (((double)E*1.0)/(V-1))/(V+1); // Assuming rho does not change by much by adding small lap noise to make it DP
+  double scale = (2.0*sqrt(C))/(eps*rho);
   std::exponential_distribution<double> distribution(1.0/scale);
+  std::vector<double> noise;
+
+  // Noise initialization and generation
+  if (DP==1){
+    printf("Density: %lf, scale: %lf\n", rho, scale);
+    for(int i=0;i<C;i++){
+      double number1 = distribution(generator);
+      double number2 = distribution(generator);
+      noise.push_back(number1-number2);
+    }
+  }
+
+  // Normalized F for satisfying \Delta=1
+  for (int i=0; i<F.Len(); i++){
+    int u = NIdxV[i];
+    if (Norm2(F[u]) > 1.0) {
+      for (TIntFltH::TIter HI = F[u].BegI(); HI < F[u].EndI(); HI++) {
+        // std::cout<<"Normalized point 1: "<<HI.GetKey()<<", "<<HI.GetDat()<<" --- " << sumq <<" "<<HI.GetDat()/sqrt(sumq)<<std::endl;
+        AddCom(u, HI.GetKey(), HI.GetDat()/sqrt(Norm2(F[u])));
+      }
+    }
+  }
 
   while(iter < MaxIter) {
     NIdxV.Shuffle(Rnd);
@@ -744,33 +801,51 @@ int TAGMFast::MLEGradAscent(const double& Thres, const int& MaxIter, const TStr&
           CIDSet.AddKey(CI.GetKey());
         }
       }
-      for (TIntFltH::TIter CI = F[u].BegI(); CI < F[u].EndI(); CI++) { //remove the community membership which U does not share with its neighbors
-        if (! CIDSet.IsKey(CI.GetKey())) {
-          DelCom(u, CI.GetKey());
-        }
-      }
+      // std::cout << CIDSet.Len() << std::endl;
       if (CIDSet.Empty()) { continue; }
       GradientForRow(u, GradV, CIDSet);
       if (DP==1){     // If DP then add noise
-        for(int i=0;i<GradV.Len();i++){
+        for (int ci = 0; ci < GradV.Len(); ci++) {
+          int CID = GradV.GetKey(ci);
+
+          // Fixing noise is not working hence adding noise in every iteration
           double number1 = distribution(generator);
           double number2 = distribution(generator);
-          GradV[i]+=number1 - number2;
+          double newgrad = GradV.GetDat(CID) + number1 - number2;
+          // double newgrad = GradV.GetDat(CID) + noise[CID];
+          if ( newgrad >= 10 ) { newgrad = 10; }
+          if ( newgrad <= -10) { newgrad = -10; }
+          GradV.AddDat(CID) = newgrad;
+        }
+      }
+      else {
+        for (int c = 0; c < GradV.Len(); c++) {
+          if (GradV[c] >= 10) { GradV[c] = 10; }
+          if (GradV[c] <= -10) { GradV[c] = -10; }
+          IAssert(GradV[c] >= -10);
         }
       }
       if (Norm2(GradV) < 1e-4) { continue; }
-      double LearnRate = GetStepSizeByLineSearch(u, GradV, GradV, StepAlpha, StepBeta);
+      // double LearnRate = GetStepSizeByLineSearch(u, GradV, GradV, StepAlpha, StepBeta);
+      double LearnRate = 0.0001;
       if (LearnRate == 0.0) { continue; }
       for (int ci = 0; ci < GradV.Len(); ci++) {
         int CID = GradV.GetKey(ci);
         double Change = LearnRate * GradV.GetDat(CID);
         double NewFuc = GetCom(u, CID) + Change;
         if (NewFuc <= 0.0) {
-          DelCom(u, CID);
+          // DelCom(u, CID)
+          AddCom(u, CID, 0.0); // Instead of deleting community just replacing the value with 0.0
         } else {
           AddCom(u, CID, NewFuc);
         }
       }
+      if (Norm2(F[u]) > 1.0) {
+        for (TIntFltH::TIter HI = F[u].BegI(); HI < F[u].EndI(); HI++) {
+          AddCom(u, HI.GetKey(), HI.GetDat()/sqrt(Norm2(F[u])));
+        }
+      }
+
       if (! PlotNm.Empty() && (iter + 1) % G->GetNodes() == 0) {
         IterLV.Add(TIntFltPr(iter, Likelihood(false)));
       }
@@ -784,8 +859,21 @@ int TAGMFast::MLEGradAscent(const double& Thres, const int& MaxIter, const TStr&
         printf("\r%d iterations, Likelihood: %f, Diff: %f", iter, CurL,  CurL - PrevL);
       }
       fflush(stdout);
-      if (CurL - PrevL <= Thres * fabs(PrevL)) { break; }
-      else { PrevL = CurL; }
+
+      // if (CurL - PrevL <= Thres * fabs(PrevL)) { 
+      //   if (DP==1){
+      //     PrevL = CurL;
+      //     continue;
+      //   }
+      //   else {
+      //     PrevL = CurL; 
+      //     // break; 
+      //   }
+      // }
+      // else { PrevL = CurL; }
+      
+      // Removing the stopping condition
+      PrevL = CurL;
     }
     
   }

@@ -29,6 +29,7 @@ public:
   double GetRegCoef() { return RegCoef; }
   void RandomInit(const int InitComs);
   void AllInit(const int InitComs);
+  void AllInit95Quantile(const int InitComs);
   void NeighborComInit(const int InitComs);
   void SetCmtyVV(const TVec<TIntV>& CmtyVV);
   double Likelihood(const bool DoParallel = false);
@@ -39,7 +40,7 @@ public:
   double GradientForOneVar(const TFltV& AlphaKV, const int UID, const int CID, const double& Val);
   double HessianForOneVar(const TFltV& AlphaKV, const int UID, const int CID, const double& Val);
   double LikelihoodForOneVar(const TFltV& AlphaKV, const int UID, const int CID, const double& Val);
-  void GetCmtyVV(TVec<TIntV>& CmtyVV);
+  void GetCmtyVV(TVec<TIntV>& CmtyVV, const int DP);
   void GetCmtyVV(TVec<TIntV>& CmtyVV, const double Thres, const int MinSz = 3);
   int FindComsByCV(TIntV& ComsV, const double HOFrac = 0.2, const int NumThreads = 20, const TStr& PlotLFNm = TStr(), const double StepAlpha = 0.3, const double StepBeta = 0.1);
   int FindComsByCV(const int NumThreads, const int MaxComs, const int MinComs, const int DivComs, const TStr& OutFNm, const double StepAlpha = 0.3, const double StepBeta = 0.3);
